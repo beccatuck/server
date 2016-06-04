@@ -46,6 +46,7 @@
 #include "sql_string.h"   // needed for Rpl_filter
 #include "sql_list.h"     // needed for Rpl_filter
 #include "rpl_filter.h"
+#include "rpl_gtid.h"     // needed for Rpl_gtid
 
 #include "mysqld.h"
 
@@ -124,6 +125,8 @@ static short binlog_flags = 0;
 static MYSQL* mysql = NULL;
 static const char* dirname_for_local_load= 0;
 static bool opt_skip_annotate_row_events= 0;
+
+static struct rpl_gtid *start_gtid, *stop_gtid;
 
 /**
   Pointer to the Format_description_log_event of the currently active binlog.
@@ -1404,6 +1407,17 @@ static struct my_option my_options[] =
    "Start reading the binlog at position N. Applies to the first binlog "
    "passed on the command line.",
    &start_position, &start_position, 0, GET_ULL,
+   REQUIRED_ARG, BIN_LOG_HEADER_SIZE, BIN_LOG_HEADER_SIZE,
+   /*
+     COM_BINLOG_DUMP accepts only 4 bytes for the position
+     so remote log reading has lower limit.
+   */
+   (ulonglong)(0xffffffffffffffffULL), 0, 0, 0},
+   {"start-gtid", 'g',
+   "Start reading the binlog at next GTID seq_no. Eg: When given 0-1-100 as argument,"
+   "The next event to be processed is 0-1-101. Applies to the first binlog"
+   "passed on the command line.",
+   &start_gtid, &start_gtid, 0, GET_ULL,
    REQUIRED_ARG, BIN_LOG_HEADER_SIZE, BIN_LOG_HEADER_SIZE,
    /*
      COM_BINLOG_DUMP accepts only 4 bytes for the position
