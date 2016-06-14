@@ -1419,10 +1419,6 @@ static struct my_option my_options[] =
    "passed on the command line.",
    &start_gtid, &start_gtid, 0, GET_ULL,
    REQUIRED_ARG, BIN_LOG_HEADER_SIZE, BIN_LOG_HEADER_SIZE,
-   /*
-     COM_BINLOG_DUMP accepts only 4 bytes for the position
-     so remote log reading has lower limit.
-   */
    (ulonglong)(0xffffffffffffffffULL), 0, 0, 0},
   {"stop-datetime", OPT_STOP_DATETIME,
    "Stop reading the binlog at first event having a datetime equal or "
@@ -2463,6 +2459,143 @@ end:
   return retval;
 }
 
+
+/**
+  Reads a local binlog and prints the events it sees.
+
+  @param[in] logname Name of input binlog.
+
+  @param[in,out] print_event_info Parameters and context state
+  determining how to print.
+
+  @retval ERROR_STOP An error occurred - the program should terminate.
+  @retval OK_CONTINUE No error, the program should continue.
+  @retval OK_STOP No error, but the end of the specified range of
+  events to process has been reached and the program should terminate.
+*/
+static Exit_status gtid_dump_local_log_entries(PRINT_EVENT_INFO *print_event_info,
+                                          const char* logname, struct rpl_gtid *gtid)
+{
+  File fd = -1;
+  IO_CACHE cache,*file= &cache;
+  uchar tmp_buff[BIN_LOG_HEADER_SIZE];
+  Exit_status retval= OK_CONTINUE;
+
+  if (logname && strcmp(logname, "-") != 0)
+  {
+    /* read from normal file */
+    if ((fd = my_open(logname, O_RDONLY | O_BINARY, MYF(MY_WME))) < 0)
+      return ERROR_STOP;
+    if (init_io_cache(file, fd, 0, READ_CACHE, gtid->seq_no, 0,
+          MYF(MY_WME | MY_NABP)))
+    {
+      my_close(fd, MYF(MY_WME));
+      return ERROR_STOP;
+    }
+    if ((retval= check_header(file, print_event_info, logname)) != OK_CONTINUE)
+      goto end;
+  }
+  else
+  {
+    /* read from stdin */
+    /*
+      Windows opens stdin in text mode by default. Certain characters
+      such as CTRL-Z are interpeted as events and the read() method
+      will stop. CTRL-Z is the EOF marker in Windows. to get past this
+      you have to open stdin in binary mode. Setmode() is used to set
+      stdin in binary mode. Errors on setting this mode result in 
+      halting the function and printing an error message to stderr.
+    */
+#if defined (__WIN__) || (_WIN64)
+    if (_setmode(fileno(stdin), O_BINARY) == -1)
+    {
+      error("Could not set binary mode on stdin.");
+      return ERROR_STOP;
+    }
+#endif 
+    if (init_io_cache(file, my_fileno(stdin), 0, READ_CACHE, (my_off_t) 0,
+          0, MYF(MY_WME | MY_NABP | MY_DONT_CHECK_FILESIZE)))
+    {
+      error("Failed to init IO cache.");
+      return ERROR_STOP;
+    }
+    if ((retval= check_header(file, print_event_info, logname)) != OK_CONTINUE)
+      goto end;
+    if (start_position)
+    {
+      /* skip 'start_position' characters from stdin */
+      uchar buff[IO_SIZE];
+      my_off_t length,tmp;
+      for (length= gtid->seq_no ; length > 0 ; length-=tmp)
+      {
+  tmp= MY_MIN(length,sizeof(buff));
+  if (my_b_read(file, buff, (uint) tmp))
+        {
+          error("Failed reading from file.");
+          goto err;
+        }
+      }
+    }
+  }
+
+  if (!glob_description_event || !glob_description_event->is_valid())
+  {
+    error("Invalid Format_description log event; could be out of memory.");
+    goto err;
+  }
+
+  if (!gtid->seq_no && my_b_read(file, tmp_buff, BIN_LOG_HEADER_SIZE))
+  {
+    error("Failed reading from file.");
+    goto err;
+  }
+  for (;;)
+  {
+    char llbuff[21];
+    my_off_t old_off = my_b_tell(file);
+
+    Log_event* ev = Log_event::read_log_event(file, 0, glob_description_event,
+                                              opt_verify_binlog_checksum);
+    if (!ev)
+    {
+      /*
+        if binlog wasn't closed properly ("in use" flag is set) don't complain
+        about a corruption, but treat it as EOF and move to the next binlog.
+      */
+      if (glob_description_event->flags & LOG_EVENT_BINLOG_IN_USE_F)
+        file->error= 0;
+      else if (file->error)
+      {
+        error("Could not read entry at offset %s: "
+              "Error in log format or read error.",
+              llstr(old_off,llbuff));
+        goto err;
+      }
+      // file->error == 0 means EOF, that's OK, we break in this case
+      goto end;
+    }
+    if ((retval= process_event(print_event_info, ev, old_off, logname)) !=
+        OK_CONTINUE)
+      goto end;
+  }
+
+  /* NOTREACHED */
+
+err:
+  retval= ERROR_STOP;
+
+end:
+  if (fd >= 0)
+    my_close(fd, MYF(MY_WME));
+  /*
+    Since the end_io_cache() writes to the
+    file errors may happen.
+   */
+  if (end_io_cache(file))
+    retval= ERROR_STOP;
+
+  return retval;
+}
 /* Used in sql_alloc(). Inited and freed in main() */
 MEM_ROOT s_mem_root;
 
