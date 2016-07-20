@@ -127,7 +127,8 @@ static const char* dirname_for_local_load= 0;
 static bool opt_skip_annotate_row_events= 0;
 
 static struct rpl_gtid *start_gtid, *stop_gtid;
-
+static char *start_gtid_str, stop_gtid_str;
+static ulonglong start_gtid_seq_no=0, stop_gtid_seq_no= stop_position;
 /**
   Pointer to the Format_description_log_event of the currently active binlog.
 
@@ -1403,6 +1404,11 @@ static struct my_option my_options[] =
    "(you should probably use quotes for your shell to set it properly).",
    &start_datetime_str, &start_datetime_str,
    0, GET_STR_ALLOC, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
+   {"start-gtid", OPT_START_GTID,
+   "Start reading the binlog at first event having a gtid sequence number equal or "
+   "posterior to the argument;The argument must be a valid gtid in the format x-y-z",
+   &start_gtid_str, &start_gtid_str,
+   0, GET_STR_ALLOC, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
   {"start-position", 'j',
    "Start reading the binlog at position N. Applies to the first binlog "
    "passed on the command line.",
@@ -1413,13 +1419,6 @@ static struct my_option my_options[] =
      so remote log reading has lower limit.
    */
    (ulonglong)(0xffffffffffffffffULL), 0, 0, 0},
-   {"start-gtid", 'g',
-   "Start reading the binlog at next GTID seq_no. Eg: When given 0-1-100 as argument,"
-   "The next event to be processed is 0-1-101. Applies to the first binlog"
-   "passed on the command line.",
-   &start_gtid, &start_gtid, 0, GET_ULL,
-   REQUIRED_ARG, BIN_LOG_HEADER_SIZE, BIN_LOG_HEADER_SIZE,
-   (ulonglong)(0xffffffffffffffffULL), 0, 0, 0},
   {"stop-datetime", OPT_STOP_DATETIME,
    "Stop reading the binlog at first event having a datetime equal or "
    "posterior to the argument; the argument must be a date and time "
@@ -1427,6 +1426,11 @@ static struct my_option my_options[] =
    "for DATETIME and TIMESTAMP types, for example: 2004-12-25 11:25:56 "
    "(you should probably use quotes for your shell to set it properly).",
    &stop_datetime_str, &stop_datetime_str,
+   0, GET_STR_ALLOC, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
+   {"stop-gtid", OPT_STOP_GTID,
+   "Stop reading the binlog at first event having a gtid sequence number equal or "
+   "posterior to the argument;The argument must be a valid gtid in the format x-y-z",
+   &stop_gtid_str, &stop_gtid_str,
    0, GET_STR_ALLOC, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
   {"stop-position", OPT_STOP_POSITION,
    "Stop reading the binlog at position N. Applies to the last binlog "
@@ -1599,6 +1603,8 @@ static my_time_t convert_str_to_timestamp(const char* str)
   return
     my_system_gmt_sec(&l_time, &dummy_my_timezone, &dummy_in_dst_time_gap);
 }
+
+
 
 
 extern "C" my_bool
