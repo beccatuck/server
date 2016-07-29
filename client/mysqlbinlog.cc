@@ -1604,6 +1604,11 @@ static my_time_t convert_str_to_timestamp(const char* str)
     my_system_gmt_sec(&l_time, &dummy_my_timezone, &dummy_in_dst_time_gap);
 }
 
+static ulonglong convert_str_to_gtid_seq_no(const char* str){
+  // Implement
+  return start_position;
+}
+
 
 
 
@@ -1652,6 +1657,9 @@ get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
     break;
   case OPT_STOP_DATETIME:
     stop_datetime= convert_str_to_timestamp(stop_datetime_str);
+    break;
+  case OPT_START_GTID:
+    convert_str_to_gtid_seq_no(start_gtid_str);
     break;
   case OPT_BASE64_OUTPUT_MODE:
     if (argument == NULL)
