@@ -127,7 +127,7 @@ static const char* dirname_for_local_load= 0;
 static bool opt_skip_annotate_row_events= 0;
 
 static struct rpl_gtid *start_gtid, *stop_gtid;
-static char *start_gtid_str, stop_gtid_str;
+static char *start_gtid_str, *stop_gtid_str;
 static ulonglong start_gtid_seq_no=0, stop_gtid_seq_no= stop_position;
 /**
   Pointer to the Format_description_log_event of the currently active binlog.
@@ -1552,6 +1552,8 @@ static void cleanup()
   my_free(const_cast<char*>(dirname_for_local_load));
   my_free(start_datetime_str);
   my_free(stop_datetime_str);
+  my_free(start_gtid_str);
+  my_free(stop_gtid_str);
 
   delete binlog_filter;
   delete glob_description_event;
@@ -1605,8 +1607,12 @@ static my_time_t convert_str_to_timestamp(const char* str)
 }
 
 static ulonglong convert_str_to_gtid_seq_no(const char* str){
-  // Implement
-  return start_position;
+  rpl_gtid gtid; // Used to convert String to GTID.
+  if(sscanf(str, "%d-%d-%d", &(gtid.domain_id), &(gtid.server_id), &(gtid.seq_no)) != 3){
+    error(" Incorrect GTID argument %s ", str);
+    exit(1);
+  }
+  exit(1);
 }
 
 
@@ -1659,7 +1665,10 @@ get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
     stop_datetime= convert_str_to_timestamp(stop_datetime_str);
     break;
   case OPT_START_GTID:
-    convert_str_to_gtid_seq_no(start_gtid_str);
+    start_position = convert_str_to_gtid_seq_no(start_gtid_str);
+    break;
+  case OPT_STOP_GTID:
+    stop_position = convert_str_to_gtid_seq_no(stop_gtid_str);
     break;
   case OPT_BASE64_OUTPUT_MODE:
     if (argument == NULL)
